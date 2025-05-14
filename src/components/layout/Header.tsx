@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
-import { ShoppingBag, User, Menu, X, Search } from 'lucide-react';
+import { ShoppingBag, User, Menu, X, Search, LogIn } from 'lucide-react';
 
 const Header = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -17,7 +17,7 @@ const Header = () => {
         <div className="flex items-center justify-between">
           {/* Logo */}
           <Link to="/" className="flex items-center">
-            <h1 className="text-2xl font-serif font-bold italic">Glow<span className="text-skin-gold">Vogue</span></h1>
+            <h1 className="text-2xl font-serif font-bold italic">Ila's<span className="text-skin-gold">Beauty</span></h1>
           </Link>
 
           {/* Desktop Navigation */}
@@ -34,8 +34,10 @@ const Header = () => {
             <Button variant="ghost" size="icon" className="hover:text-skin-gold">
               <Search size={20} />
             </Button>
-            <Button variant="ghost" size="icon" className="hover:text-skin-gold">
-              <User size={20} />
+            <Button variant="ghost" size="icon" className="hover:text-skin-gold" asChild>
+              <Link to="/auth">
+                <User size={20} />
+              </Link>
             </Button>
             <Button variant="ghost" size="icon" className="hover:text-skin-gold">
               <ShoppingBag size={20} />
@@ -68,9 +70,11 @@ const Header = () => {
                 <Search size={18} />
                 <span>Search</span>
               </Button>
-              <Button variant="ghost" size="sm" className="flex items-center gap-2">
-                <User size={18} />
-                <span>Account</span>
+              <Button variant="ghost" size="sm" className="flex items-center gap-2" asChild>
+                <Link to="/auth" onClick={toggleMobileMenu}>
+                  <User size={18} />
+                  <span>Account</span>
+                </Link>
               </Button>
               <Button variant="ghost" size="sm" className="flex items-center gap-2">
                 <ShoppingBag size={18} />
