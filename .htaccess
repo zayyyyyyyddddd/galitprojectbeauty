@@ -1,0 +1,13 @@
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+  
+  # Handle static assets directly
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+  
+  # Redirect all non-file routes to index.html for SPA routing
+  RewriteRule ^ dist/index.html [L]
+</IfModule>

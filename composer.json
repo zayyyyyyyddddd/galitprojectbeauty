@@ -1,5 +1,12 @@
 
 {
   "name": "galitprojectbeauty",
-  "require": {}
+  "description": "Ila's Beauty - Premium Skincare Products",
+  "type": "project",
+  "require": {},
+  "config": {
+    "optimize-autoloader": true,
+    "preferred-install": "dist",
+    "sort-packages": true
+  }
 }
