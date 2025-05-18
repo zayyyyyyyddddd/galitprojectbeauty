@@ -7,6 +7,7 @@ import FeaturedProducts from '@/components/home/FeaturedProducts';
 import Categories from '@/components/home/Categories';
 import About from '@/components/home/About';
 import Newsletter from '@/components/home/Newsletter';
+import AdminLoginLink from '@/components/home/AdminLoginLink';
 
 const Index = () => {
   return (
@@ -18,6 +19,7 @@ const Index = () => {
         <Categories />
         <About />
         <Newsletter />
+        <AdminLoginLink />
       </main>
       <Footer />
     </div>

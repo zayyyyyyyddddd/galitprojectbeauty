@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { User } from '@/types/user';
 import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,7 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Input } from '@/components/ui/input';
 import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from '@/components/ui/form';
 import { useForm } from 'react-hook-form';
-import { PlusCircle, Trash2, Save, X } from 'lucide-react';
+import { PlusCircle, Trash2, Save, X, LogOut } from 'lucide-react';
 
 // Types for products and categories
 interface Product {
@@ -22,56 +23,70 @@ interface Product {
   name: string;
   description: string;
   price: number;
-  category: string;
-  imageUrl: string;
-  createdAt: string;
+  category_id: string;
+  image_url: string;
+  created_at: string;
 }
 
 interface Category {
   id: string;
   name: string;
   description: string;
-  createdAt: string;
+  created_at: string;
+}
+
+interface AdminUser {
+  id: string;
+  email: string;
+  name: string;
+  isAdmin: boolean;
 }
 
 const Admin = () => {
+  const navigate = useNavigate();
   const { user } = useAuth();
+  const [adminUser, setAdminUser] = useState<AdminUser | null>(null);
   const [resellers, setResellers] = useState<User[]>([]);
   const [customers, setCustomers] = useState<User[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingProducts, setLoadingProducts] = useState(false);
+  const [loadingCategories, setLoadingCategories] = useState(false);
   const [activeTab, setActiveTab] = useState('resellers');
   const [isAddingProduct, setIsAddingProduct] = useState(false);
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
 
-  // Only admin can access this page - in a real app, would use proper admin role
-  // For demo, we're using first created account as admin
-  const isAdmin = user?.id === 'admin' || user?.email === 'admin@example.com';
-
-  // Forms for products and categories
-  const productForm = useForm({
-    defaultValues: {
-      name: '',
-      description: '',
-      price: 0,
-      category: '',
-      imageUrl: '',
-    },
-  });
-
-  const categoryForm = useForm({
-    defaultValues: {
-      name: '',
-      description: '',
-    },
-  });
-
+  // Check admin status
   useEffect(() => {
-    if (isAdmin) {
-      // Fetch all users from localStorage
+    const adminSessionStr = localStorage.getItem('admin_session');
+    
+    if (adminSessionStr) {
+      try {
+        const adminSession = JSON.parse(adminSessionStr);
+        if (adminSession && adminSession.isAdmin) {
+          setAdminUser(adminSession);
+        } else {
+          navigate('/admin-login');
+        }
+      } catch (error) {
+        console.error('Failed to parse admin session:', error);
+        navigate('/admin-login');
+      }
+    } else {
+      navigate('/admin-login');
+    }
+    
+    setLoading(false);
+  }, [navigate]);
+
+  // Fetch resellers and customers
+  useEffect(() => {
+    if (adminUser) {
+      // Fetch users from localStorage for now
+      // In a real app, these would come from Supabase
       const storedUsersString = localStorage.getItem('ila_beauty_users');
       const storedUsers: Record<string, User> = storedUsersString ? JSON.parse(storedUsersString) : {};
       
@@ -82,17 +97,81 @@ const Admin = () => {
       setResellers(resellerUsers);
       setCustomers(customerUsers);
       
-      // Fetch products and categories from localStorage
-      const storedProductsString = localStorage.getItem('ila_beauty_products');
-      const storedProducts: Product[] = storedProductsString ? JSON.parse(storedProductsString) : [];
-      setProducts(storedProducts);
+      // Fetch products from Supabase
+      fetchProducts();
       
-      const storedCategoriesString = localStorage.getItem('ila_beauty_categories');
-      const storedCategories: Category[] = storedCategoriesString ? JSON.parse(storedCategoriesString) : [];
-      setCategories(storedCategories);
+      // Fetch categories from Supabase
+      fetchCategories();
     }
-    setLoading(false);
-  }, [isAdmin]);
+  }, [adminUser]);
+
+  const fetchProducts = async () => {
+    try {
+      setLoadingProducts(true);
+      const { data, error } = await supabase
+        .from('products')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (error) {
+        throw error;
+      }
+      
+      setProducts(data || []);
+    } catch (error) {
+      console.error('Error fetching products:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load products.",
+        variant: "destructive"
+      });
+    } finally {
+      setLoadingProducts(false);
+    }
+  };
+
+  const fetchCategories = async () => {
+    try {
+      setLoadingCategories(true);
+      const { data, error } = await supabase
+        .from('categories')
+        .select('*')
+        .order('name', { ascending: true });
+      
+      if (error) {
+        throw error;
+      }
+      
+      setCategories(data || []);
+    } catch (error) {
+      console.error('Error fetching categories:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load categories.",
+        variant: "destructive"
+      });
+    } finally {
+      setLoadingCategories(false);
+    }
+  };
+
+  // Forms for products and categories
+  const productForm = useForm({
+    defaultValues: {
+      name: '',
+      description: '',
+      price: 0,
+      category_id: '',
+      image_url: '',
+    },
+  });
+
+  const categoryForm = useForm({
+    defaultValues: {
+      name: '',
+      description: '',
+    },
+  });
 
   // RESELLER FUNCTIONS
   const handleApprovalChange = (resellerId: string, approved: boolean) => {
@@ -138,56 +217,87 @@ const Admin = () => {
   };
 
   // PRODUCT FUNCTIONS
-  const handleAddProduct = (data: any) => {
-    const newProduct: Product = {
-      id: `product_${Date.now()}`,
-      name: data.name,
-      description: data.description,
-      price: parseFloat(data.price),
-      category: data.category,
-      imageUrl: data.imageUrl,
-      createdAt: new Date().toISOString()
-    };
+  const handleAddProduct = async (data: any) => {
+    try {
+      const newProduct = {
+        name: data.name,
+        description: data.description,
+        price: parseFloat(data.price),
+        category_id: data.category_id || null,
+        image_url: data.image_url,
+      };
 
-    const updatedProducts = [...products, newProduct];
-    localStorage.setItem('ila_beauty_products', JSON.stringify(updatedProducts));
-    setProducts(updatedProducts);
-    
-    setIsAddingProduct(false);
-    productForm.reset();
-    
-    toast({
-      title: "Product Added",
-      description: `${data.name} has been added to the product catalog.`,
-    });
+      const { data: insertedProduct, error } = await supabase
+        .from('products')
+        .insert([newProduct])
+        .select()
+        .single();
+      
+      if (error) {
+        throw error;
+      }
+      
+      setProducts(prev => [insertedProduct, ...prev]);
+      setIsAddingProduct(false);
+      productForm.reset();
+      
+      toast({
+        title: "Product Added",
+        description: `${data.name} has been added to the product catalog.`,
+      });
+    } catch (error) {
+      console.error('Error adding product:', error);
+      toast({
+        title: "Error",
+        description: "Failed to add product.",
+        variant: "destructive"
+      });
+    }
   };
 
-  const handleUpdateProduct = (data: any) => {
+  const handleUpdateProduct = async (data: any) => {
     if (!editingProductId) return;
     
-    const updatedProducts = products.map(product => 
-      product.id === editingProductId 
-        ? { 
-            ...product, 
-            name: data.name, 
-            description: data.description, 
-            price: parseFloat(data.price), 
-            category: data.category, 
-            imageUrl: data.imageUrl 
-          } 
-        : product
-    );
-    
-    localStorage.setItem('ila_beauty_products', JSON.stringify(updatedProducts));
-    setProducts(updatedProducts);
-    
-    setEditingProductId(null);
-    productForm.reset();
-    
-    toast({
-      title: "Product Updated",
-      description: `${data.name} has been updated.`,
-    });
+    try {
+      const updatedProduct = {
+        name: data.name,
+        description: data.description,
+        price: parseFloat(data.price),
+        category_id: data.category_id || null,
+        image_url: data.image_url,
+      };
+
+      const { error } = await supabase
+        .from('products')
+        .update(updatedProduct)
+        .eq('id', editingProductId);
+      
+      if (error) {
+        throw error;
+      }
+      
+      // Update local state
+      setProducts(prev => 
+        prev.map(product => 
+          product.id === editingProductId ? { ...product, ...updatedProduct } : product
+        )
+      );
+      
+      setEditingProductId(null);
+      productForm.reset();
+      
+      toast({
+        title: "Product Updated",
+        description: `${data.name} has been updated.`,
+      });
+    } catch (error) {
+      console.error('Error updating product:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update product.",
+        variant: "destructive"
+      });
+    }
   };
 
   const startEditProduct = (product: Product) => {
@@ -195,68 +305,116 @@ const Admin = () => {
       name: product.name,
       description: product.description,
       price: product.price,
-      category: product.category,
-      imageUrl: product.imageUrl
+      category_id: product.category_id,
+      image_url: product.image_url
     });
     setEditingProductId(product.id);
   };
 
-  const handleDeleteProduct = (productId: string) => {
-    const updatedProducts = products.filter(product => product.id !== productId);
-    localStorage.setItem('ila_beauty_products', JSON.stringify(updatedProducts));
-    setProducts(updatedProducts);
-    
-    toast({
-      title: "Product Deleted",
-      description: "The product has been removed from the catalog.",
-    });
+  const handleDeleteProduct = async (productId: string) => {
+    try {
+      const { error } = await supabase
+        .from('products')
+        .delete()
+        .eq('id', productId);
+      
+      if (error) {
+        throw error;
+      }
+      
+      // Update local state
+      setProducts(prev => prev.filter(product => product.id !== productId));
+      
+      toast({
+        title: "Product Deleted",
+        description: "The product has been removed from the catalog.",
+      });
+    } catch (error) {
+      console.error('Error deleting product:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete product.",
+        variant: "destructive"
+      });
+    }
   };
 
   // CATEGORY FUNCTIONS
-  const handleAddCategory = (data: any) => {
-    const newCategory: Category = {
-      id: `category_${Date.now()}`,
-      name: data.name,
-      description: data.description,
-      createdAt: new Date().toISOString()
-    };
+  const handleAddCategory = async (data: any) => {
+    try {
+      const newCategory = {
+        name: data.name,
+        description: data.description,
+      };
 
-    const updatedCategories = [...categories, newCategory];
-    localStorage.setItem('ila_beauty_categories', JSON.stringify(updatedCategories));
-    setCategories(updatedCategories);
-    
-    setIsAddingCategory(false);
-    categoryForm.reset();
-    
-    toast({
-      title: "Category Added",
-      description: `${data.name} has been added to the categories.`,
-    });
+      const { data: insertedCategory, error } = await supabase
+        .from('categories')
+        .insert([newCategory])
+        .select()
+        .single();
+      
+      if (error) {
+        throw error;
+      }
+      
+      setCategories(prev => [...prev, insertedCategory]);
+      setIsAddingCategory(false);
+      categoryForm.reset();
+      
+      toast({
+        title: "Category Added",
+        description: `${data.name} has been added to the categories.`,
+      });
+    } catch (error) {
+      console.error('Error adding category:', error);
+      toast({
+        title: "Error",
+        description: "Failed to add category.",
+        variant: "destructive"
+      });
+    }
   };
 
-  const handleUpdateCategory = (data: any) => {
+  const handleUpdateCategory = async (data: any) => {
     if (!editingCategoryId) return;
     
-    const updatedCategories = categories.map(category => 
-      category.id === editingCategoryId 
-        ? { 
-            ...category, 
-            name: data.name, 
-            description: data.description
-          } 
-        : category
-    );
-    
-    localStorage.setItem('ila_beauty_categories', JSON.stringify(updatedCategories));
-    setCategories(updatedCategories);
-    
-    setEditingCategoryId(null);
-    categoryForm.reset();
-    
-    toast({
-      title: "Category Updated",
-      description: `${data.name} has been updated.`,
-    });
+    try {
+      const updatedCategory = {
+        name: data.name,
+        description: data.description,
+      };
+
+      const { error } = await supabase
+        .from('categories')
+        .update(updatedCategory)
+        .eq('id', editingCategoryId);
+      
+      if (error) {
+        throw error;
+      }
+      
+      // Update local state
+      setCategories(prev => 
+        prev.map(category => 
+          category.id === editingCategoryId ? { ...category, ...updatedCategory } : category
+        )
+      );
+      
+      setEditingCategoryId(null);
+      categoryForm.reset();
+      
+      toast({
+        title: "Category Updated",
+        description: `${data.name} has been updated.`,
+      });
+    } catch (error) {
+      console.error('Error updating category:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update category.",
+        variant: "destructive"
+      });
+    }
   };
 
   const startEditCategory = (category: Category) => {
@@ -267,27 +425,75 @@ const Admin = () => {
     setEditingCategoryId(category.id);
   };
 
-  const handleDeleteCategory = (categoryId: string) => {
-    const updatedCategories = categories.filter(category => category.id !== categoryId);
-    localStorage.setItem('ila_beauty_categories', JSON.stringify(updatedCategories));
-    setCategories(updatedCategories);
-    
-    toast({
-      title: "Category Deleted",
-      description: "The category has been removed.",
-    });
+  const handleDeleteCategory = async (categoryId: string) => {
+    try {
+      const { error } = await supabase
+        .from('categories')
+        .delete()
+        .eq('id', categoryId);
+      
+      if (error) {
+        throw error;
+      }
+      
+      // Update local state
+      setCategories(prev => prev.filter(category => category.id !== categoryId));
+      
+      toast({
+        title: "Category Deleted",
+        description: "The category has been removed.",
+      });
+    } catch (error) {
+      console.error('Error deleting category:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete category.",
+        variant: "destructive"
+      });
+    }
   };
 
-  // Redirect if not admin
-  if (!loading && !isAdmin) {
-    return <Navigate to="/" replace />;
+  const handleLogout = () => {
+    localStorage.removeItem('admin_session');
+    toast({
+      title: "Logout Successful",
+      description: "You have been logged out of the admin panel.",
+    });
+    navigate('/admin-login');
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col">
+        <Header />
+        <main className="container mx-auto py-8 flex-grow flex items-center justify-center">
+          <p>Loading...</p>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
+
+  if (!adminUser) {
+    return <Navigate to="/admin-login" replace />;
   }
 
   return (
     <div className="min-h-screen flex flex-col">
       <Header />
       <main className="container mx-auto py-8 flex-grow px-4">
-        <h1 className="text-3xl font-serif mb-8">Admin Dashboard</h1>
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-3xl font-serif">Admin Dashboard</h1>
+          <div className="flex items-center gap-4">
+            <div className="text-right">
+              <p className="font-medium">{adminUser.email}</p>
+              <p className="text-sm text-muted-foreground">Admin</p>
+            </div>
+            <Button variant="outline" size="sm" onClick={handleLogout}>
+              <LogOut className="h-4 w-4 mr-2" /> Logout
+            </Button>
+          </div>
+        </div>
         
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="grid w-full grid-cols-4">
@@ -442,262 +648,270 @@ const Admin = () => {
                 )}
               </CardHeader>
               <CardContent>
-                {isAddingProduct && (
-                  <Card className="mb-6 border-dashed">
-                    <CardHeader>
-                      <CardTitle>Add New Product</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <Form {...productForm}>
-                        <form onSubmit={productForm.handleSubmit(handleAddProduct)} className="space-y-4">
-                          <FormField
-                            control={productForm.control}
-                            name="name"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Product Name</FormLabel>
-                                <FormControl>
-                                  <Input placeholder="Enter product name" {...field} />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                          <FormField
-                            control={productForm.control}
-                            name="description"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Description</FormLabel>
-                                <FormControl>
-                                  <Input placeholder="Enter product description" {...field} />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <FormField
-                              control={productForm.control}
-                              name="price"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>Price</FormLabel>
-                                  <FormControl>
-                                    <Input type="number" placeholder="0.00" {...field} />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                            <FormField
-                              control={productForm.control}
-                              name="category"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>Category</FormLabel>
-                                  <FormControl>
-                                    <select 
-                                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-base ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm" 
-                                      {...field}
-                                    >
-                                      <option value="">Select category</option>
-                                      {categories.map((category) => (
-                                        <option key={category.id} value={category.name}>
-                                          {category.name}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                          </div>
-                          <FormField
-                            control={productForm.control}
-                            name="imageUrl"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Image URL</FormLabel>
-                                <FormControl>
-                                  <Input placeholder="Enter image URL" {...field} />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                          <div className="flex justify-end gap-2">
-                            <Button 
-                              type="button" 
-                              variant="outline" 
-                              onClick={() => {
-                                setIsAddingProduct(false);
-                                productForm.reset();
-                              }}
-                            >
-                              <X className="mr-2 h-4 w-4" />
-                              Cancel
-                            </Button>
-                            <Button type="submit">
-                              <Save className="mr-2 h-4 w-4" />
-                              Save Product
-                            </Button>
-                          </div>
-                        </form>
-                      </Form>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {editingProductId && (
-                  <Card className="mb-6 border-dashed">
-                    <CardHeader>
-                      <CardTitle>Edit Product</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <Form {...productForm}>
-                        <form onSubmit={productForm.handleSubmit(handleUpdateProduct)} className="space-y-4">
-                          <FormField
-                            control={productForm.control}
-                            name="name"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Product Name</FormLabel>
-                                <FormControl>
-                                  <Input placeholder="Enter product name" {...field} />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                          <FormField
-                            control={productForm.control}
-                            name="description"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Description</FormLabel>
-                                <FormControl>
-                                  <Input placeholder="Enter product description" {...field} />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <FormField
-                              control={productForm.control}
-                              name="price"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>Price</FormLabel>
-                                  <FormControl>
-                                    <Input type="number" placeholder="0.00" {...field} />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                            <FormField
-                              control={productForm.control}
-                              name="category"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>Category</FormLabel>
-                                  <FormControl>
-                                    <select 
-                                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-base ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm" 
-                                      {...field}
-                                    >
-                                      <option value="">Select category</option>
-                                      {categories.map((category) => (
-                                        <option key={category.id} value={category.name}>
-                                          {category.name}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                          </div>
-                          <FormField
-                            control={productForm.control}
-                            name="imageUrl"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Image URL</FormLabel>
-                                <FormControl>
-                                  <Input placeholder="Enter image URL" {...field} />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                          <div className="flex justify-end gap-2">
-                            <Button 
-                              type="button" 
-                              variant="outline" 
-                              onClick={() => {
-                                setEditingProductId(null);
-                                productForm.reset();
-                              }}
-                            >
-                              <X className="mr-2 h-4 w-4" />
-                              Cancel
-                            </Button>
-                            <Button type="submit">
-                              <Save className="mr-2 h-4 w-4" />
-                              Update Product
-                            </Button>
-                          </div>
-                        </form>
-                      </Form>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {products.length === 0 && !isAddingProduct ? (
-                  <p className="text-muted-foreground">No products found. Add your first product to get started.</p>
+                {loadingProducts ? (
+                  <div className="text-center py-4">Loading products...</div>
                 ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Price</TableHead>
-                        <TableHead>Category</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {products.map((product) => (
-                        <TableRow key={product.id}>
-                          <TableCell className="font-medium">{product.name}</TableCell>
-                          <TableCell>${product.price.toFixed(2)}</TableCell>
-                          <TableCell>{product.category}</TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              <Button 
-                                variant="outline" 
-                                size="sm" 
-                                onClick={() => startEditProduct(product)}
-                              >
-                                Edit
-                              </Button>
-                              <Button 
-                                variant="destructive" 
-                                size="sm"
-                                onClick={() => handleDeleteProduct(product.id)}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                  <>
+                    {isAddingProduct && (
+                      <Card className="mb-6 border-dashed">
+                        <CardHeader>
+                          <CardTitle>Add New Product</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <Form {...productForm}>
+                            <form onSubmit={productForm.handleSubmit(handleAddProduct)} className="space-y-4">
+                              <FormField
+                                control={productForm.control}
+                                name="name"
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>Product Name</FormLabel>
+                                    <FormControl>
+                                      <Input placeholder="Enter product name" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                              <FormField
+                                control={productForm.control}
+                                name="description"
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>Description</FormLabel>
+                                    <FormControl>
+                                      <Input placeholder="Enter product description" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <FormField
+                                  control={productForm.control}
+                                  name="price"
+                                  render={({ field }) => (
+                                    <FormItem>
+                                      <FormLabel>Price</FormLabel>
+                                      <FormControl>
+                                        <Input type="number" placeholder="0.00" {...field} />
+                                      </FormControl>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                                <FormField
+                                  control={productForm.control}
+                                  name="category_id"
+                                  render={({ field }) => (
+                                    <FormItem>
+                                      <FormLabel>Category</FormLabel>
+                                      <FormControl>
+                                        <select 
+                                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-base ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm" 
+                                          {...field}
+                                        >
+                                          <option value="">Select category</option>
+                                          {categories.map((category) => (
+                                            <option key={category.id} value={category.id}>
+                                              {category.name}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </FormControl>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                              </div>
+                              <FormField
+                                control={productForm.control}
+                                name="image_url"
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>Image URL</FormLabel>
+                                    <FormControl>
+                                      <Input placeholder="Enter image URL" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                              <div className="flex justify-end gap-2">
+                                <Button 
+                                  type="button" 
+                                  variant="outline" 
+                                  onClick={() => {
+                                    setIsAddingProduct(false);
+                                    productForm.reset();
+                                  }}
+                                >
+                                  <X className="mr-2 h-4 w-4" />
+                                  Cancel
+                                </Button>
+                                <Button type="submit">
+                                  <Save className="mr-2 h-4 w-4" />
+                                  Save Product
+                                </Button>
+                              </div>
+                            </form>
+                          </Form>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {editingProductId && (
+                      <Card className="mb-6 border-dashed">
+                        <CardHeader>
+                          <CardTitle>Edit Product</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <Form {...productForm}>
+                            <form onSubmit={productForm.handleSubmit(handleUpdateProduct)} className="space-y-4">
+                              <FormField
+                                control={productForm.control}
+                                name="name"
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>Product Name</FormLabel>
+                                    <FormControl>
+                                      <Input placeholder="Enter product name" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                              <FormField
+                                control={productForm.control}
+                                name="description"
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>Description</FormLabel>
+                                    <FormControl>
+                                      <Input placeholder="Enter product description" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <FormField
+                                  control={productForm.control}
+                                  name="price"
+                                  render={({ field }) => (
+                                    <FormItem>
+                                      <FormLabel>Price</FormLabel>
+                                      <FormControl>
+                                        <Input type="number" placeholder="0.00" {...field} />
+                                      </FormControl>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                                <FormField
+                                  control={productForm.control}
+                                  name="category_id"
+                                  render={({ field }) => (
+                                    <FormItem>
+                                      <FormLabel>Category</FormLabel>
+                                      <FormControl>
+                                        <select 
+                                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-base ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm" 
+                                          {...field}
+                                        >
+                                          <option value="">Select category</option>
+                                          {categories.map((category) => (
+                                            <option key={category.id} value={category.id}>
+                                              {category.name}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </FormControl>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                              </div>
+                              <FormField
+                                control={productForm.control}
+                                name="image_url"
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>Image URL</FormLabel>
+                                    <FormControl>
+                                      <Input placeholder="Enter image URL" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                              <div className="flex justify-end gap-2">
+                                <Button 
+                                  type="button" 
+                                  variant="outline" 
+                                  onClick={() => {
+                                    setEditingProductId(null);
+                                    productForm.reset();
+                                  }}
+                                >
+                                  <X className="mr-2 h-4 w-4" />
+                                  Cancel
+                                </Button>
+                                <Button type="submit">
+                                  <Save className="mr-2 h-4 w-4" />
+                                  Update Product
+                                </Button>
+                              </div>
+                            </form>
+                          </Form>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {products.length === 0 && !isAddingProduct ? (
+                      <p className="text-muted-foreground">No products found. Add your first product to get started.</p>
+                    ) : (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Name</TableHead>
+                            <TableHead>Price</TableHead>
+                            <TableHead>Category</TableHead>
+                            <TableHead>Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {products.map((product) => (
+                            <TableRow key={product.id}>
+                              <TableCell className="font-medium">{product.name}</TableCell>
+                              <TableCell>${product.price.toFixed(2)}</TableCell>
+                              <TableCell>
+                                {categories.find(c => c.id === product.category_id)?.name || 'Uncategorized'}
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    onClick={() => startEditProduct(product)}
+                                  >
+                                    Edit
+                                  </Button>
+                                  <Button 
+                                    variant="destructive" 
+                                    size="sm"
+                                    onClick={() => handleDeleteProduct(product.id)}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    )}
+                  </>
                 )}
               </CardContent>
             </Card>
@@ -722,158 +936,164 @@ const Admin = () => {
                 )}
               </CardHeader>
               <CardContent>
-                {isAddingCategory && (
-                  <Card className="mb-6 border-dashed">
-                    <CardHeader>
-                      <CardTitle>Add New Category</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <Form {...categoryForm}>
-                        <form onSubmit={categoryForm.handleSubmit(handleAddCategory)} className="space-y-4">
-                          <FormField
-                            control={categoryForm.control}
-                            name="name"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Category Name</FormLabel>
-                                <FormControl>
-                                  <Input placeholder="Enter category name" {...field} />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                          <FormField
-                            control={categoryForm.control}
-                            name="description"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Description</FormLabel>
-                                <FormControl>
-                                  <Input placeholder="Enter category description" {...field} />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                          <div className="flex justify-end gap-2">
-                            <Button 
-                              type="button" 
-                              variant="outline" 
-                              onClick={() => {
-                                setIsAddingCategory(false);
-                                categoryForm.reset();
-                              }}
-                            >
-                              <X className="mr-2 h-4 w-4" />
-                              Cancel
-                            </Button>
-                            <Button type="submit">
-                              <Save className="mr-2 h-4 w-4" />
-                              Save Category
-                            </Button>
-                          </div>
-                        </form>
-                      </Form>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {editingCategoryId && (
-                  <Card className="mb-6 border-dashed">
-                    <CardHeader>
-                      <CardTitle>Edit Category</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <Form {...categoryForm}>
-                        <form onSubmit={categoryForm.handleSubmit(handleUpdateCategory)} className="space-y-4">
-                          <FormField
-                            control={categoryForm.control}
-                            name="name"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Category Name</FormLabel>
-                                <FormControl>
-                                  <Input placeholder="Enter category name" {...field} />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                          <FormField
-                            control={categoryForm.control}
-                            name="description"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Description</FormLabel>
-                                <FormControl>
-                                  <Input placeholder="Enter category description" {...field} />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                          <div className="flex justify-end gap-2">
-                            <Button 
-                              type="button" 
-                              variant="outline" 
-                              onClick={() => {
-                                setEditingCategoryId(null);
-                                categoryForm.reset();
-                              }}
-                            >
-                              <X className="mr-2 h-4 w-4" />
-                              Cancel
-                            </Button>
-                            <Button type="submit">
-                              <Save className="mr-2 h-4 w-4" />
-                              Update Category
-                            </Button>
-                          </div>
-                        </form>
-                      </Form>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {categories.length === 0 && !isAddingCategory ? (
-                  <p className="text-muted-foreground">No categories found. Add your first category to get started.</p>
+                {loadingCategories ? (
+                  <div className="text-center py-4">Loading categories...</div>
                 ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Description</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {categories.map((category) => (
-                        <TableRow key={category.id}>
-                          <TableCell className="font-medium">{category.name}</TableCell>
-                          <TableCell>{category.description}</TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              <Button 
-                                variant="outline" 
-                                size="sm" 
-                                onClick={() => startEditCategory(category)}
-                              >
-                                Edit
-                              </Button>
-                              <Button 
-                                variant="destructive" 
-                                size="sm"
-                                onClick={() => handleDeleteCategory(category.id)}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                  <>
+                    {isAddingCategory && (
+                      <Card className="mb-6 border-dashed">
+                        <CardHeader>
+                          <CardTitle>Add New Category</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <Form {...categoryForm}>
+                            <form onSubmit={categoryForm.handleSubmit(handleAddCategory)} className="space-y-4">
+                              <FormField
+                                control={categoryForm.control}
+                                name="name"
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>Category Name</FormLabel>
+                                    <FormControl>
+                                      <Input placeholder="Enter category name" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                              <FormField
+                                control={categoryForm.control}
+                                name="description"
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>Description</FormLabel>
+                                    <FormControl>
+                                      <Input placeholder="Enter category description" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                              <div className="flex justify-end gap-2">
+                                <Button 
+                                  type="button" 
+                                  variant="outline" 
+                                  onClick={() => {
+                                    setIsAddingCategory(false);
+                                    categoryForm.reset();
+                                  }}
+                                >
+                                  <X className="mr-2 h-4 w-4" />
+                                  Cancel
+                                </Button>
+                                <Button type="submit">
+                                  <Save className="mr-2 h-4 w-4" />
+                                  Save Category
+                                </Button>
+                              </div>
+                            </form>
+                          </Form>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {editingCategoryId && (
+                      <Card className="mb-6 border-dashed">
+                        <CardHeader>
+                          <CardTitle>Edit Category</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <Form {...categoryForm}>
+                            <form onSubmit={categoryForm.handleSubmit(handleUpdateCategory)} className="space-y-4">
+                              <FormField
+                                control={categoryForm.control}
+                                name="name"
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>Category Name</FormLabel>
+                                    <FormControl>
+                                      <Input placeholder="Enter category name" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                              <FormField
+                                control={categoryForm.control}
+                                name="description"
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>Description</FormLabel>
+                                    <FormControl>
+                                      <Input placeholder="Enter category description" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                              <div className="flex justify-end gap-2">
+                                <Button 
+                                  type="button" 
+                                  variant="outline" 
+                                  onClick={() => {
+                                    setEditingCategoryId(null);
+                                    categoryForm.reset();
+                                  }}
+                                >
+                                  <X className="mr-2 h-4 w-4" />
+                                  Cancel
+                                </Button>
+                                <Button type="submit">
+                                  <Save className="mr-2 h-4 w-4" />
+                                  Update Category
+                                </Button>
+                              </div>
+                            </form>
+                          </Form>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {categories.length === 0 && !isAddingCategory ? (
+                      <p className="text-muted-foreground">No categories found. Add your first category to get started.</p>
+                    ) : (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Name</TableHead>
+                            <TableHead>Description</TableHead>
+                            <TableHead>Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {categories.map((category) => (
+                            <TableRow key={category.id}>
+                              <TableCell className="font-medium">{category.name}</TableCell>
+                              <TableCell>{category.description}</TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    onClick={() => startEditCategory(category)}
+                                  >
+                                    Edit
+                                  </Button>
+                                  <Button 
+                                    variant="destructive" 
+                                    size="sm"
+                                    onClick={() => handleDeleteCategory(category.id)}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    )}
+                  </>
                 )}
               </CardContent>
             </Card>
