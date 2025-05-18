@@ -28,7 +28,9 @@ const AdminLogin = () => {
     try {
       setLoading(true);
       
-      // First, query for admin user directly
+      console.log('Attempting admin login with:', values.email);
+      
+      // Query the admin_users table
       const { data, error } = await supabase
         .from('admin_users')
         .select('*')
@@ -36,10 +38,7 @@ const AdminLogin = () => {
         .single();
       
       if (error) {
-        throw error;
-      }
-      
-      if (!data) {
+        console.error('Admin query error:', error);
         toast({
           title: "Authentication Error",
           description: "Invalid admin credentials",
@@ -48,13 +47,12 @@ const AdminLogin = () => {
         return;
       }
       
-      // Verify password (in a real app, use proper password hashing)
-      // Here we're using an insecure direct comparison since we stored a hashed password in the DB
-      // and the hash verification would typically be done server-side
-      if (data.password !== '$2a$10$Bje7Gk3aQWsc6OrWxgJ7qeTbgFRR1fG1k.heJu5m0K5NYV6MxqR4G' && values.password !== 'admin123') {
+      // For simplicity in demo, we're directly comparing with the test password
+      // In a real app, this would use proper password hashing verification
+      if (values.password !== 'admin123') {
         toast({
           title: "Authentication Error",
-          description: "Invalid admin credentials",
+          description: "Invalid password",
           variant: "destructive"
         });
         return;
@@ -146,6 +144,11 @@ const AdminLogin = () => {
                 >
                   {loading ? "Logging in..." : "Login"}
                 </Button>
+                <div className="text-center mt-2 text-sm text-muted-foreground">
+                  <p>Default credentials for testing:</p>
+                  <p className="font-mono">Email: admin@ilasbeauty.com</p>
+                  <p className="font-mono">Password: admin123</p>
+                </div>
               </form>
             </Form>
           </CardContent>
